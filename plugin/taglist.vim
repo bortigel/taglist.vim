@@ -60,6 +60,74 @@
 let s:cpo_save = &cpo
 set cpo&vim
 
+let Taglist = {}
+
+function! Taglist.new( multihead_client )
+    let taglist = copy( s:Taglist )
+    let taglist.multihead_client = a:multihead_client
+
+    return taglist
+endfunction
+
+call g:Multihead.install_plugin('Taglist')
+
+function! Taglist.notify( client_name, ... )
+    call g:Multihead.send_expr( a:client_name,
+        \ printf( 'call g:Multihead.Taglist.refresh("%s", "%s", %d)',
+            \ fnamemodify(bufname('%'), ':p'),
+            \ g:Taglist.get_buf_filetype('%'),
+            \ line('.') )
+    \ )
+endfunction
+
+function! Taglist.get_buf_filetype( bufnum )
+    return s:Tlist_Get_Buffer_Filetype( a:bufnum )
+endfunction
+
+function! Taglist.jump( tagpat )
+    " Jump to the tag
+    if a:tagpat != ''
+        " Add the current cursor position to the jump list, so that user can
+        " jump back using the ' and ` marks.
+        mark '
+        silent call search(a:tagpat, 'w')
+
+        " Bring the line to the middle of the window
+        normal! z.
+
+        " If the line is inside a fold, open the fold
+        if foldclosed('.') != -1
+            .foldopen
+        endif
+    endif
+endfunction
+
+let s:Taglist = {}
+
+function! s:Taglist.connect( server_name )
+    call self.multihead_client.connect( a:server_name )
+    call self.init()
+endfunction
+
+function! s:Taglist.init()
+    set noruler
+    set showtabline=0
+    set cmdheight=3
+    call s:Tlist_Window_Init()
+    " call self.refresh()
+    call self.init_autocommands()
+endfunction
+
+function! s:Taglist.refresh( fname, buftype, lnum )
+    call s:Tlist_Window_Refresh()
+    call s:Tlist_Refresh( a:fname, a:buftype, a:lnum )
+endfunction
+
+function! s:Taglist.init_autocommands()
+    call self.multihead_client.install_server_autocommands(['BufEnter', 'BufDelete', 'CursorHold'])
+endfunction
+
+
 if !exists('loaded_taglist')
     " First time loading the taglist plugin
     "
@@ -1549,7 +1617,7 @@ function! s:Tlist_Window_Init()
 
     " Create buffer local mappings for jumping to the tags and sorting the list
     nnoremap <buffer> <silent> <CR>
-                \ :call <SID>Tlist_Window_Jump_To_Tag('useopen')<CR>
+                \ :call <SID>Tlist_Window_Jump_To_Tag('mh')<CR>
     nnoremap <buffer> <silent> o
                 \ :call <SID>Tlist_Window_Jump_To_Tag('newwin')<CR>
     nnoremap <buffer> <silent> p
@@ -1656,8 +1724,8 @@ function! s:Tlist_Window_Init()
         " Display the tag prototype for the tag under the cursor.
         autocmd CursorHold __Tag_List__ call s:Tlist_Window_Show_Info()
         " Highlight the current tag periodically
-        autocmd CursorHold * silent call s:Tlist_Window_Highlight_Tag(
-                            \ fnamemodify(bufname('%'), ':p'), line('.'), 1, 0)
+        " autocmd CursorHold * silent call s:Tlist_Window_Highlight_Tag(
+        "                     \ fnamemodify(bufname('%'), ':p'), line('.'), 1, 0)
 
         " Adjust the Vim window width when taglist window is closed
         autocmd BufUnload __Tag_List__ call s:Tlist_Post_Close_Cleanup()
@@ -2790,7 +2858,7 @@ endfunction
 
 " Tlist_Refresh()
 " Refresh the taglist
-function! s:Tlist_Refresh()
+function! s:Tlist_Refresh(fname, type, lnum)
     call s:Tlist_Log_Msg('Tlist_Refresh (Skip_Refresh = ' .
                 \ s:Tlist_Skip_Refresh . ', ' . bufname('%') . ')')
     " If we are entering the buffer from one of the taglist functions, then
@@ -2811,12 +2879,12 @@ function! s:Tlist_Refresh()
     endif
 
     " Skip buffers with 'buftype' set to nofile, nowrite, quickfix or help
-    if &buftype != ''
-        return
-    endif
+    " if &buftype != ''
+    "     return
+    " endif
 
-    let filename = fnamemodify(bufname('%'), ':p')
-    let ftype = s:Tlist_Get_Buffer_Filetype('%')
+    let filename = a:fname
+    let ftype = a:type
 
     " If the file doesn't support tag listing, skip it
     if s:Tlist_Skip_File(filename, ftype)
@@ -2827,9 +2895,9 @@ function! s:Tlist_Refresh()
 
     " If the taglist window is not opened and not configured to process
     " tags always and not displaying the tags menu, then return
-    if tlist_win == -1 && !g:Tlist_Process_File_Always && !g:Tlist_Show_Menu
-        return
-    endif
+    " if tlist_win == -1 && !g:Tlist_Process_File_Always && !g:Tlist_Show_Menu
+    "     return
+    " endif
 
     let fidx = s:Tlist_Get_File_Index(filename)
     if fidx == -1
@@ -2845,7 +2913,7 @@ function! s:Tlist_Refresh()
         endif
     endif
 
-    let cur_lnum = line('.')
+    let cur_lnum = a:lnum
 
     if fidx == -1
         " Update the tags for the file
@@ -2865,7 +2933,7 @@ function! s:Tlist_Refresh()
     endif
 
     " Update the taglist window
-    if tlist_win != -1
+    " if tlist_win != -1
         " Disable screen updates
         let old_lazyredraw = &lazyredraw
         set nolazyredraw
@@ -2874,7 +2942,7 @@ function! s:Tlist_Refresh()
         let save_winnr = winnr()
 
         " Goto the taglist window
-        call s:Tlist_Window_Goto_Window()
+        " call s:Tlist_Window_Goto_Window()
 
         if !g:Tlist_Auto_Highlight_Tag || !g:Tlist_Highlight_Tag_On_BufEnter
             " Save the cursor position
@@ -2918,7 +2986,7 @@ function! s:Tlist_Refresh()
 
         " Restore screen updates
         let &lazyredraw = old_lazyredraw
-    endif
+    " endif
 
     " Update the taglist menu
     if g:Tlist_Show_Menu
@@ -3101,6 +3169,12 @@ endfunction
 " Open the specified file in either a new window or an existing window
 " and place the cursor at the specified tag pattern
 function! s:Tlist_Window_Open_File(win_ctrl, filename, tagpat)
+    if a:win_ctrl == 'mh'
+        call g:Multihead.Taglist.multihead_client.send_expr(
+            \ printf("call g:Taglist.jump('%s') | call foreground()", substitute(a:tagpat, "'", "''", "g")) )
+        return
+    endif
+
     call s:Tlist_Log_Msg('Tlist_Window_Open_File (' . a:filename . ',' .
                 \ a:win_ctrl . ')')
     let prev_Tlist_Skip_Refresh = s:Tlist_Skip_Refresh
@@ -3505,11 +3579,11 @@ function! s:Tlist_Window_Highlight_Tag(filename, cur_lnum, cntx, center)
     endif
 
     " Make sure the taglist window is present
-    let winnum = bufwinnr(g:TagList_title)
-    if winnum == -1
-        call s:Tlist_Warning_Msg('Error: Taglist window is not open')
-        return
-    endif
+    " let winnum = bufwinnr(g:TagList_title)
+    " if winnum == -1
+    "     call s:Tlist_Warning_Msg('Error: Taglist window is not open')
+    "     return
+    " endif
 
     let fidx = s:Tlist_Get_File_Index(a:filename)
     if fidx == -1
@@ -3533,16 +3607,16 @@ function! s:Tlist_Window_Highlight_Tag(filename, cur_lnum, cntx, center)
     " Save the original window number
     let org_winnr = winnr()
 
-    if org_winnr == winnum
-        let in_taglist_window = 1
-    else
-        let in_taglist_window = 0
-    endif
+    " if org_winnr == winnum
+    "     let in_taglist_window = 1
+    " else
+    "     let in_taglist_window = 0
+    " endif
 
     " Go to the taglist window
-    if !in_taglist_window
-        exe winnum . 'wincmd w'
-    endif
+    " if !in_taglist_window
+    "     exe winnum . 'wincmd w'
+    " endif
 
     " Clear previously selected name
     match none
@@ -3565,9 +3639,9 @@ function! s:Tlist_Window_Highlight_Tag(filename, cur_lnum, cntx, center)
 
         call winline()
 
-        if !in_taglist_window
-            exe org_winnr . 'wincmd w'
-        endif
+        " if !in_taglist_window
+        "     exe org_winnr . 'wincmd w'
+        " endif
 
         " Restore the autocommands
         let &eventignore = old_ei
@@ -3604,9 +3678,9 @@ function! s:Tlist_Window_Highlight_Tag(filename, cur_lnum, cntx, center)
     call s:Tlist_Window_Highlight_Line()
 
     " Go back to the original window
-    if !in_taglist_window
-        exe org_winnr . 'wincmd w'
-    endif
+    " if !in_taglist_window
+    "     exe org_winnr . 'wincmd w'
+    " endif
 
     " Restore the autocommands
     let &eventignore = old_ei
